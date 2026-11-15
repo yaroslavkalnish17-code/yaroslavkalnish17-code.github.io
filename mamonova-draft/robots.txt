@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+
+Host: https://yaroslavkalnish17-code.github.io
+Sitemap: https://yaroslavkalnish17-code.github.io/mamonova/sitemap.xml

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Правка цен и текстов</title>
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<style>
+@font-face{font-family:"Playfair Display";font-style:italic;font-weight:400;font-display:swap;src:url(../fonts/pf-it-cyr.woff2) format("woff2")}
+@font-face{font-family:Inter;font-weight:400 600;font-display:swap;src:url(../fonts/inter-cyr.woff2) format("woff2");unicode-range:U+0400-045F}
+@font-face{font-family:Inter;font-weight:400 600;font-display:swap;src:url(../fonts/inter-lat.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20BD}
+:root{--ink:#000;--paper:#fff;--graphite:#5c5c5c;--line:#e4e2df;--mist:#f4f3f1;--ok:#1f6b3a;--err:#a3261b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--mist);color:var(--ink);font:400 17px/1.5 Inter,system-ui,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:40px 20px 120px}
+h1{font:italic 400 40px/1.1 "Playfair Display",Georgia,serif;margin:0 0 8px}
+h2{font:italic 400 26px/1.2 "Playfair Display",Georgia,serif;margin:40px 0 12px}
+p.note{color:var(--graphite);margin:0 0 28px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px}
+label{display:block;font-weight:500;font-size:15px;margin:0 0 6px}
+input,textarea{width:100%;font:inherit;padding:12px 14px;border:1px solid #cfcdc9;border-radius:10px;background:#fff;color:var(--ink)}
+textarea{min-height:88px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+.f{margin-bottom:18px}
+.f small{display:block;color:var(--graphite);font-size:13px;margin-top:4px}
+.f.changed input,.f.changed textarea{border-color:var(--ink);background:#fbfaf7}
+button{font:500 16px/1.2 Inter,system-ui,sans-serif;border-radius:999px;padding:14px 26px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
+.bar{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);padding:14px 20px;display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
+.msg{margin-top:14px;font-size:15px}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--err)}
+[hidden]{display:none!important}
+a{color:inherit}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Вход -->
+  <section id="login">
+    <h1>Правка сайта</h1>
+    <p class="note">Здесь можно поменять цены и тексты на сайте. Введите пароль, который вам дали.</p>
+    <form class="card" id="loginForm">
+      <div class="f"><label for="pw">Пароль</label><input id="pw" type="password" autocomplete="current-password" required></div>
+      <button type="submit">Войти</button>
+      <p class="msg" id="loginMsg" role="status"></p>
+    </form>
+  </section>
+
+  <!-- Редактор -->
+  <section id="editor" hidden>
+    <h1>Цены и тексты</h1>
+    <p class="note">Поменяйте, что нужно, и нажмите «Сохранить на сайте». Изменения появятся на сайте через 1–2 минуты. Цены пишите цифрами, например <b>6 000</b>.</p>
+    <div id="fields"></div>
+  </section>
+
+  <!-- Настройка ключа (для Ярослава) -->
+  <section id="setup" hidden>
+    <h1>Настройка входа</h1>
+    <p class="note">Один раз: создайте на GitHub fine-grained токен только для репозитория сайта с правом Contents: Read and write. Токен шифруется паролем прямо в браузере и никуда не отправляется. Скачанный файл <b>key.json</b> положите в папку <b>admin/</b> рядом с этой страницей.</p>
+    <form class="card" id="setupForm">
+      <div class="f"><label for="sTok">Токен GitHub</label><input id="sTok" type="password" required autocomplete="off"></div>
+      <div class="f"><label for="sRepo">Репозиторий</label><input id="sRepo" value="yaroslavkalnish17-code/yaroslavkalnish17-code.github.io" required><small>владелец/название</small></div>
+      <div class="f"><label for="sBranch">Ветка</label><input id="sBranch" value="main" required></div>
+      <div class="f"><label for="sPath">Путь к странице</label><input id="sPath" value="mamonova/index.html" required></div>
+      <div class="f"><label for="sPw">Пароль для Анны</label><input id="sPw" type="password" minlength="10" required autocomplete="new-password"><small>Не короче 10 символов</small></div>
+      <button type="submit">Скачать key.json</button>
+      <p class="msg" id="setupMsg" role="status"></p>
+    </form>
+  </section>
+</div>
+
+<div class="bar" id="bar" hidden>
+  <button class="ghost" type="button" id="reset">Отменить изменения</button>
+  <button type="button" id="save" disabled>Сохранить на сайте</button>
+  <span class="msg" id="saveMsg" role="status" style="margin:0"></span>
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)};
+  var enc=new TextEncoder(), dec=new TextDecoder();
+  var cfg=null, sha=null, doc=null, original={};
+
+  /* Цены, которые дублируются в разметке для поисковиков */
+  var SCHEMA={ "pm-lips":"Перманентный макияж губ","pm-brows":"Перманентный макияж бровей","pm-eyes":"Перманентный макияж глаз",
+    "br-complex":"Комплексное оформление бровей","br-lami":"Долговременная укладка бровей","lash":"Ламинирование ресниц",
+    "edu-1":"1 зона","edu-2":"2 зоны","edu-3":"3 зоны" };
+
+  function b64(buf){var s='',b=new Uint8Array(buf);for(var i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s)}
+  function unb64(s){var bin=atob(s),b=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);return b}
+  function utf8ToB64(str){return b64(enc.encode(str))}
+  function b64ToUtf8(s){return dec.decode(unb64(s.replace(/\n/g,'')))}
+
+  async function deriveKey(pw,salt){
+    var base=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);
+    return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:310000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  }
+
+  function api(path,opt){
+    opt=opt||{}; opt.headers=Object.assign({'Accept':'application/vnd.github+json','Authorization':'Bearer '+cfg.token},opt.headers||{});
+    return fetch('https://api.github.com/repos/'+cfg.repo+'/contents/'+cfg.path+path,opt);
+  }
+
+  /* ---------- Вход ---------- */
+  $('loginForm').addEventListener('submit',async function(e){
+    e.preventDefault(); var m=$('loginMsg'); m.className='msg'; m.textContent='Проверяю…';
+    try{
+      var r=await fetch('key.json',{cache:'no-store'});
+      if(!r.ok)throw new Error('nokey');
+      var k=await r.json();
+      var key=await deriveKey($('pw').value,unb64(k.salt));
+      var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(k.iv)},key,unb64(k.data));
+      cfg=JSON.parse(dec.decode(plain));
+    }catch(err){
+      m.className='msg err';
+      m.textContent=err.message==='nokey'?'Вход ещё не настроен. Напишите Ярославу.':'Пароль не подошёл. Проверьте раскладку и Caps Lock.';
+      return;
+    }
+    m.textContent='Загружаю сайт…';
+    try{ await loadPage(); }catch(err){ m.className='msg err'; m.textContent='Не удалось загрузить сайт: '+err.message+'. Проверьте интернет и попробуйте ещё раз.'; return; }
+    $('login').hidden=true; $('editor').hidden=false; $('bar').hidden=false;
+  });
+
+  async function loadPage(){
+    var r=await api('?ref='+encodeURIComponent(cfg.branch),{cache:'no-store'});
+    if(!r.ok)throw new Error('GitHub ответил '+r.status);
+    var j=await r.json(); sha=j.sha;
+    var html=b64ToUtf8(j.content);
+    doc=new DOMParser().parseFromString(html,'text/html');
+    renderFields();
+  }
+
+  function renderFields(){
+    var box=$('fields'); box.innerHTML=''; original={};
+    var nodes=doc.querySelectorAll('[data-edit]');
+    var groups={};
+    nodes.forEach(function(n){
+      var label=n.getAttribute('data-label')||n.getAttribute('data-edit');
+      var g=label.split(':')[0].replace(/,.*$/,'').trim();
+      var grp=/₽|%/.test(label)?'Цены':'Тексты';
+      (groups[grp]=groups[grp]||[]).push(n);
+    });
+    ['Цены','Тексты'].forEach(function(gname){
+      if(!groups[gname])return;
+      var h=document.createElement('h2'); h.textContent=gname; box.appendChild(h);
+      var card=document.createElement('div'); card.className='card'; box.appendChild(card);
+      groups[gname].forEach(function(n){
+        var id=n.getAttribute('data-edit'), val=n.textContent.trim().replace(/\s+/g,' ');
+        original[id]=val;
+        var f=document.createElement('div'); f.className='f';
+        var l=document.createElement('label'); l.textContent=n.getAttribute('data-label')||id; l.htmlFor='e-'+id;
+        var long=val.length>60, inp=document.createElement(long?'textarea':'input');
+        inp.id='e-'+id; inp.value=val; inp.dataset.key=id;
+        if(!long&&gname==='Цены'){inp.inputMode='numeric'}
+        inp.addEventListener('input',function(){f.classList.toggle('changed',inp.value.trim()!==original[id]);updSave()});
+        f.appendChild(l); f.appendChild(inp); card.appendChild(f);
+      });
+    });
+    updSave();
+  }
+  function changed(){return [].slice.call(document.querySelectorAll('#fields [data-key]')).filter(function(i){return i.value.trim()!==original[i.dataset.key]})}
+  function updSave(){var c=changed().length;$('save').disabled=!c;$('save').textContent=c?'Сохранить на сайте ('+c+')':'Сохранить на сайте'}
+
+  $('reset').addEventListener('click',function(){renderFields();$('saveMsg').textContent=''});
+
+  $('save').addEventListener('click',async function(){
+    var list=changed(), m=$('saveMsg'); if(!list.length)return;
+    var bad=list.filter(function(i){return i.closest('.card')&&/₽|%/.test(document.querySelector('label[for="'+i.id+'"]').textContent)&&!/^\d[\d\s]*$/.test(i.value.trim())});
+    if(bad.length){m.className='msg err';m.textContent='В ценах только цифры, например 6 000';bad[0].focus();return}
+    $('save').disabled=true; m.className='msg'; m.textContent='Сохраняю…';
+    list.forEach(function(i){
+      var k=i.dataset.key, v=i.value.trim();
+      if(/₽|%/.test(document.querySelector('label[for="'+i.id+'"]').textContent)){v=v.replace(/\s/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,' ');}
+      doc.querySelectorAll('[data-edit="'+k+'"]').forEach(function(n){n.textContent=v});
+      if(SCHEMA[k]){
+        var s=doc.querySelector('script[type="application/ld+json"]');
+        if(s){try{var data=JSON.parse(s.textContent),num=v.replace(/\s/g,'');
+          JSON.stringify(data,function(key,val){if(val&&typeof val==='object'&&val['@type']==='Offer'&&((val.itemOffered&&val.itemOffered.name===SCHEMA[k])||val.name===SCHEMA[k]))val.price=num;return val});
+          s.textContent='\n'+JSON.stringify(data,null,2)+'\n';}catch(e){}}
+      }
+    });
+    var html='<!doctype html>\n'+doc.documentElement.outerHTML+'\n';
+    try{
+      var r=await api('',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'Правка цен и текстов с запасного входа',content:utf8ToB64(html),sha:sha,branch:cfg.branch})});
+      if(r.status===409){throw new Error('сайт успели изменить, обновите страницу и повторите')}
+      if(!r.ok)throw new Error('GitHub ответил '+r.status);
+      var j=await r.json(); sha=j.content.sha;
+      list.forEach(function(i){original[i.dataset.key]=i.value.trim();i.closest('.f').classList.remove('changed')});
+      updSave();
+      m.className='msg ok'; m.textContent='Сохранено. На сайте появится через 1–2 минуты.';
+    }catch(err){ m.className='msg err'; m.textContent='Не сохранилось: '+err.message; updSave(); }
+  });
+
+  /* ---------- Настройка (admin/?setup) ---------- */
+  if(location.search.indexOf('setup')>-1){$('login').hidden=true;$('setup').hidden=false}
+  $('setupForm').addEventListener('submit',async function(e){
+    e.preventDefault();
+    var payload={token:$('sTok').value.trim(),repo:$('sRepo').value.trim(),branch:$('sBranch').value.trim(),path:$('sPath').value.trim()};
+    var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+    var key=await deriveKey($('sPw').value,salt);
+    var data=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(JSON.stringify(payload)));
+    var out=JSON.stringify({v:1,salt:b64(salt),iv:b64(iv),data:b64(data)},null,1);
+    var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/json'})); a.download='key.json'; a.click();
+    $('sTok').value=''; $('setupMsg').className='msg ok'; $('setupMsg').textContent='Готово: key.json скачан. Положите его в папку admin/ на сайте.';
+  });
+})();
+</script>
+</body>
+</html>
