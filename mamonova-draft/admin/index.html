@@ -41,9 +41,10 @@ a{color:inherit}
   <!-- Вход -->
   <section id="login">
     <h1>Правка сайта</h1>
-    <p class="note">Здесь можно поменять цены и тексты на сайте. Введите пароль, который вам дали.</p>
-    <form class="card" id="loginForm">
-      <div class="f"><label for="pw">Пароль</label><input id="pw" type="password" autocomplete="current-password" required></div>
+    <p class="note">Здесь можно поменять цены и тексты на сайте. Вставьте ключ доступа, который вам дал Ярослав. Ключ нигде не сохраняется: после закрытия вкладки его нужно ввести снова.</p>
+    <form class="card" id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="Анна Мамонова" autocomplete="username" hidden>
+      <div class="f"><label for="pw">Ключ доступа</label><input id="pw" name="password" type="password" autocomplete="current-password" spellcheck="false" required><small>Длинная строка, начинается с github_pat_</small></div>
       <button type="submit">Войти</button>
       <p class="msg" id="loginMsg" role="status"></p>
     </form>
@@ -56,20 +57,6 @@ a{color:inherit}
     <div id="fields"></div>
   </section>
 
-  <!-- Настройка ключа (для Ярослава) -->
-  <section id="setup" hidden>
-    <h1>Настройка входа</h1>
-    <p class="note">Один раз: создайте на GitHub fine-grained токен только для репозитория сайта с правом Contents: Read and write. Токен шифруется паролем прямо в браузере и никуда не отправляется. Скачанный файл <b>key.json</b> положите в папку <b>admin/</b> рядом с этой страницей.</p>
-    <form class="card" id="setupForm">
-      <div class="f"><label for="sTok">Токен GitHub</label><input id="sTok" type="password" required autocomplete="off"></div>
-      <div class="f"><label for="sRepo">Репозиторий</label><input id="sRepo" value="yaroslavkalnish17-code/yaroslavkalnish17-code.github.io" required><small>владелец/название</small></div>
-      <div class="f"><label for="sBranch">Ветка</label><input id="sBranch" value="main" required></div>
-      <div class="f"><label for="sPath">Путь к странице</label><input id="sPath" value="mamonova/index.html" required></div>
-      <div class="f"><label for="sPw">Пароль для Анны</label><input id="sPw" type="password" minlength="10" required autocomplete="new-password"><small>Не короче 10 символов</small></div>
-      <button type="submit">Скачать key.json</button>
-      <p class="msg" id="setupMsg" role="status"></p>
-    </form>
-  </section>
 </div>
 
 <div class="bar" id="bar" hidden>
@@ -82,6 +69,8 @@ a{color:inherit}
 (function(){
   var $=function(id){return document.getElementById(id)};
   var enc=new TextEncoder(), dec=new TextDecoder();
+  /* Где лежит сайт. Не секрет: это просто адрес файла. */
+  var SITE={repo:'yaroslavkalnish17-code/yaroslavkalnish17-code.github.io', branch:'main', path:'mamonova/index.html'};
   var cfg=null, sha=null, doc=null, original={};
 
   /* Цены, которые дублируются в разметке для поисковиков */
@@ -94,39 +83,34 @@ a{color:inherit}
   function utf8ToB64(str){return b64(enc.encode(str))}
   function b64ToUtf8(s){return dec.decode(unb64(s.replace(/\n/g,'')))}
 
-  async function deriveKey(pw,salt){
-    var base=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);
-    return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:310000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
-  }
 
   function api(path,opt){
     opt=opt||{}; opt.headers=Object.assign({'Accept':'application/vnd.github+json','Authorization':'Bearer '+cfg.token},opt.headers||{});
     return fetch('https://api.github.com/repos/'+cfg.repo+'/contents/'+cfg.path+path,opt);
   }
 
-  /* ---------- Вход ---------- */
+  /* ---------- Вход ----------
+     Ключ (fine-grained токен GitHub) живёт только в памяти этой вкладки:
+     не пишется в код, в файлы, в localStorage и cookies. Уходит только на api.github.com. */
   $('loginForm').addEventListener('submit',async function(e){
-    e.preventDefault(); var m=$('loginMsg'); m.className='msg'; m.textContent='Проверяю…';
-    try{
-      var r=await fetch('key.json',{cache:'no-store'});
-      if(!r.ok)throw new Error('nokey');
-      var k=await r.json();
-      var key=await deriveKey($('pw').value,unb64(k.salt));
-      var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(k.iv)},key,unb64(k.data));
-      cfg=JSON.parse(dec.decode(plain));
-    }catch(err){
-      m.className='msg err';
-      m.textContent=err.message==='nokey'?'Вход ещё не настроен. Напишите Ярославу.':'Пароль не подошёл. Проверьте раскладку и Caps Lock.';
-      return;
-    }
+    e.preventDefault(); var m=$('loginMsg'), t=$('pw').value.trim(); m.className='msg';
+    if(/^gh[pousr]_/.test(t)){m.className='msg err';m.textContent='Это старый тип ключа. Нужен ключ, который начинается с github_pat_.';return}
+    if(!/^github_pat_[A-Za-z0-9_]{20,}$/.test(t)){m.className='msg err';m.textContent='Ключ не похож на нужный. Скопируйте его целиком, он начинается с github_pat_.';return}
+    cfg=Object.assign({token:t},SITE);
     m.textContent='Загружаю сайт…';
-    try{ await loadPage(); }catch(err){ m.className='msg err'; m.textContent='Не удалось загрузить сайт: '+err.message+'. Проверьте интернет и попробуйте ещё раз.'; return; }
+    try{ await loadPage(); }
+    catch(err){ cfg=null; m.className='msg err'; m.textContent=err.message; return; }
+    $('pw').value='';
     $('login').hidden=true; $('editor').hidden=false; $('bar').hidden=false;
   });
 
   async function loadPage(){
-    var r=await api('?ref='+encodeURIComponent(cfg.branch),{cache:'no-store'});
-    if(!r.ok)throw new Error('GitHub ответил '+r.status);
+    var r;
+    try{ r=await api('?ref='+encodeURIComponent(cfg.branch),{cache:'no-store'}); }
+    catch(e){ throw new Error('Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.'); }
+    if(r.status===401)throw new Error('Ключ не подошёл или срок его действия закончился. Напишите Ярославу.');
+    if(r.status===403||r.status===404)throw new Error('У ключа нет доступа к сайту. Напишите Ярославу.');
+    if(!r.ok)throw new Error('GitHub ответил '+r.status+'. Попробуйте позже.');
     var j=await r.json(); sha=j.sha;
     var html=b64ToUtf8(j.content);
     doc=new DOMParser().parseFromString(html,'text/html');
@@ -194,18 +178,7 @@ a{color:inherit}
     }catch(err){ m.className='msg err'; m.textContent='Не сохранилось: '+err.message; updSave(); }
   });
 
-  /* ---------- Настройка (admin/?setup) ---------- */
-  if(location.search.indexOf('setup')>-1){$('login').hidden=true;$('setup').hidden=false}
-  $('setupForm').addEventListener('submit',async function(e){
-    e.preventDefault();
-    var payload={token:$('sTok').value.trim(),repo:$('sRepo').value.trim(),branch:$('sBranch').value.trim(),path:$('sPath').value.trim()};
-    var salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
-    var key=await deriveKey($('sPw').value,salt);
-    var data=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,enc.encode(JSON.stringify(payload)));
-    var out=JSON.stringify({v:1,salt:b64(salt),iv:b64(iv),data:b64(data)},null,1);
-    var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([out],{type:'application/json'})); a.download='key.json'; a.click();
-    $('sTok').value=''; $('setupMsg').className='msg ok'; $('setupMsg').textContent='Готово: key.json скачан. Положите его в папку admin/ на сайте.';
-  });
+  window.addEventListener('pagehide',function(){cfg=null});
 })();
 </script>
 </body>
